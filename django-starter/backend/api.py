@@ -1,5 +1,4 @@
 from ninja import NinjaAPI, Schema
-from ninja.security import HttpBearer
 from datetime import datetime, timezone
 from django.conf import settings
 from django.http import HttpResponse
@@ -57,64 +56,44 @@ class CustomJWTAuth:
         return self.authenticate(request)
     
     def authenticate(self, request) -> Optional[Any]:
-        # DEBUG: Print all headers
-        print("=" * 50)
-        print("AUTHENTICATION DEBUG")
-        print("=" * 50)
-        print(f"All headers: {dict(request.headers)}")
         
         # Try Authorization header first
         auth_header = request.headers.get('Authorization', '')
-        print(f"Authorization header: '{auth_header}'")
         
         token = None
         
         if auth_header.startswith('Bearer '):
             token = auth_header.split(' ')[1]
-            print(f"Extracted Bearer token: {token[:20]}..." if token else "No token")
         
         # Fallback to cookie
         if not token:
             token = request.COOKIES.get('access')
-            print(f"Cookie token: {token[:20]}..." if token else "No cookie token")
         
         if not token:
-            print("❌ No token found in header or cookie")
             return None
         
         try:
             # Validate the token
-            print(f"Validating token...")
             access_token = AccessToken(token)
-            print(f"Token payload: {dict(access_token.payload)}")
             
             user_id = access_token.get('user_id')
-            print(f"User ID from token: {user_id}")
             
             if not user_id:
-                print("❌ No user_id in token")
                 return None
             
             # Get user from database
             from django.contrib.auth import get_user_model
             User = get_user_model()
             user = User.objects.get(id=user_id)
-            print(f"✅ User found: {user.email} (ID: {user.id})")
-            print(f"User is_active: {user.is_active}")
-            print("=" * 50)
             return user
             
         except TokenError as e:
-            print(f"❌ TokenError: {e}")
             return None
         except InvalidToken as e:
-            print(f"❌ InvalidToken: {e}")
             return None
         except User.DoesNotExist:
-            print(f"❌ User with ID {user_id} does not exist")
             return None
         except Exception as e:
-            print(f"❌ Unexpected error: {type(e).__name__}: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -187,22 +166,17 @@ def token_obtain_pair(request, data: TokenObtainPairSchema):
         user = authenticate(request, username=data.email, password=data.password)
     
     if user is None:
-        print(f"❌ Authentication failed for email: {data.email}")
         return api.create_response(
             request,
             {"detail": "No active account found with the given credentials"},
             status=401
         )
     
-    print(f"✅ User authenticated: {user.email}")
     
     # Generate tokens
     refresh = RefreshToken.for_user(user)
     access_token = str(refresh.access_token)
     refresh_token = str(refresh)
-    
-    print(f"Generated access token: {access_token[:20]}...")
-    print(f"Generated refresh token: {refresh_token[:20]}...")
     
     # Prepare response data
     response_data = {
@@ -305,30 +279,20 @@ def logout(request):
 
 # ============== PROTECTED ENDPOINTS ==============
 
+# Create a TO DO Item
 @api.post("/todo/create/", auth=CustomJWTAuth(), tags=["ToDo"])
 def create_todo(request, data: ToDoSchema):
-    """
-    Create a ToDo item (Protected endpoint - requires authentication)
-    """
-    print("=" * 50)
-    print("CREATE TODO ENDPOINT")
-    print("=" * 50)
-    print(f"request.user: {request.user}")
-    print(f"User type: {type(request.user)}")
-    print(f"request.auth: {request.auth}")
     
     # Check if user is authenticated
     if not hasattr(request, 'auth') or request.auth is None:
-        print("❌ No auth object found")
         return api.create_response(
             request,
             {"detail": "Authentication credentials were not provided"},
             status=401
         )
     
-    # The authenticated user should be in request.auth (not request.user for custom auth)
+    # The authenticated user should be in request.auth
     user = request.auth
-    print(f"Authenticated user from request.auth: {user}")
     
     todo = ToDo.objects.create(
         title=data.title,
@@ -342,3 +306,94 @@ def create_todo(request, data: ToDoSchema):
         "todo_id": todo.id,
         "user": user.email
     }
+
+# Get a list of all TO DO items for the authenticated user
+@api.get("/todo/list/", auth=CustomJWTAuth(), tags=["ToDo"])
+def list_todos(request):
+    # Check if user is authenticated
+    if not hasattr(request, 'auth') or request.auth is None:
+        return api.create_response(
+            request,
+            {"detail": "Authentication credentials were not provided"},
+            status=401
+        )
+    
+    # The authenticated user should be in request.auth
+    user = request.auth
+
+    # Get all ToDo items for this user
+    todos = ToDo.objects.filter(user=user)
+    return {
+        "todos": [
+            {
+                "id": todo.id,
+                "title": todo.title,
+                "description": todo.description,
+                "completed": todo.completed
+            }
+            for todo in todos
+        ]
+    }
+
+# Edit a TO DO item
+@api.put("/todo/edit/{todo_id}/", auth=CustomJWTAuth(), tags=["ToDo"])
+def edit_todo(request, todo_id: int, data: ToDoSchema):
+    # Check if user is authenticated
+    if not hasattr(request, 'auth') or request.auth is None:
+        return api.create_response(
+            request,
+            {"detail": "Authentication credentials were not provided"},
+            status=401
+        )
+    
+    # The authenticated user should be in request.auth
+    user = request.auth
+
+    try:
+        todo = ToDo.objects.get(id=todo_id, user=user)
+        todo.title = data.title
+        todo.description = data.description
+        todo.completed = data.completed
+        todo.save()
+        
+        return {
+            "message": "Todo item updated successfully!",
+            "todo_id": todo.id
+        }
+        
+    except ToDo.DoesNotExist:
+        return api.create_response(
+            request,
+            {"detail": "Todo item not found"},
+            status=404
+        )
+    
+# Delete a TO DO item
+@api.delete("/todo/delete/{todo_id}/", auth=CustomJWTAuth(), tags=["ToDo"])
+def delete_todo(request, todo_id: int):
+    # Check if user is authenticated
+    if not hasattr(request, 'auth') or request.auth is None:
+        return api.create_response(
+            request,
+            {"detail": "Authentication credentials were not provided"},
+            status=401
+        )
+    
+    # The authenticated user should be in request.auth
+    user = request.auth
+
+    try:
+        todo = ToDo.objects.get(id=todo_id, user=user)
+        todo.delete()
+        
+        return {
+            "message": "Todo item deleted successfully!",
+            "todo_id": todo_id
+        }
+        
+    except ToDo.DoesNotExist:
+        return api.create_response(
+            request,
+            {"detail": "Todo item not found"},
+            status=404
+        )
