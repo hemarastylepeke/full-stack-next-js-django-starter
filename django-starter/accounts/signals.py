@@ -1,3 +1,4 @@
+# signals.py
 from django.db.models.signals import post_save
 from .models import UserAccount, UserProfile
 from django.dispatch import receiver

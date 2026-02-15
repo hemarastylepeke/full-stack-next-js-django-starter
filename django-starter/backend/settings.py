@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     # Custom apps.
     'whitenoise.runserver_nostatic',
     'accounts.apps.AccountsConfig',
+    'core.apps.CoreConfig',
     'rest_framework',
     'corsheaders',
     'storages',
@@ -168,7 +169,7 @@ AUTHENTICATION_BACKENDS = [
 # Rest framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'accounts.authentication.CustomJWTAuthentication',
+        'backend.authentication.CustomJWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
